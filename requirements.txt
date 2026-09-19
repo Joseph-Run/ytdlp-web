@@ -1,0 +1,5 @@
+# Verified against streamlit 1.64.0 / yt-dlp 2026.08.19.
+# `width="stretch"` (which replaced `use_container_width`, removed after
+# 2025-12-31) needs streamlit >= 1.63, so the lower bound cannot go below it.
+streamlit>=1.63,<2
+yt-dlp>=2025.1.1

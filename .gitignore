@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.streamlit/secrets.toml
+.DS_Store
+
+# Local debugging artifacts: browser-driver scripts, scratch media, cookies.
+scratch/
+testdata/
+cookies.txt
+*.webm
+*.part

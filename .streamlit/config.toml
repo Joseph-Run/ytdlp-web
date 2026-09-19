@@ -1,0 +1,7 @@
+[browser]
+gatherUsageStats = false
+
+[server]
+headless = true
+# Streamlit's own upload cap, separate from anything the app enforces.
+maxUploadSize = 10
