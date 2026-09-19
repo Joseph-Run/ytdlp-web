@@ -53,8 +53,9 @@ the server will happily serve a healthy shell over completely broken code.
 - **Folder picker → download buttons.** A web app can't write to the visitor's
   disk, and the server's disk is temporary. Files land in a per-session scratch
   directory and are streamed to the browser, then dropped. There is a size
-  ceiling (400 MB per file, 900 MB per session) because every byte crosses the
-  free tier's memory on the way out.
+  ceiling (300 MB per file, 600 MB per session): every byte crosses the free
+  tier's memory twice on the way out, and Community Cloud allots 690 MB–2.7 GB.
+  For a 4K download, use the desktop app.
 - **"Install / Update yt-dlp" button → gone.** The server installs from
   `requirements.txt` at deploy time; there's no pip at runtime.
 - **Playlist cap.** Uncapped playlists are how a 1 GB container gets killed, so
@@ -67,12 +68,23 @@ the server will happily serve a healthy shell over completely broken code.
 
 ## Deploy on Streamlit Community Cloud
 
-1. Push this folder to a **public** GitHub repo.
+1. Push this folder to a GitHub repo you own (**admin** rights required).
 2. Sign in at <https://share.streamlit.io> with GitHub.
 3. **Create app** → pick the repo, branch `main`, main file `app.py` → Deploy.
 
-`packages.txt` is read automatically and installs `ffmpeg`. Leave the repo
-public: on the free tier, app visibility follows the repo's.
+`packages.txt` is read automatically and installs `ffmpeg`. Public repos are
+simplest; the free tier does support private repos, but only **one private app
+at a time**, and a private repo's app inherits that privacy — so a tool you
+want to share wants a public repo.
+
+Free-tier facts worth knowing (per Streamlit's docs, subject to change):
+
+| | |
+|---|---|
+| RAM / CPU | 690 MB – 2.7 GB, 0.078 – 2 cores |
+| Disk | up to 50 GB |
+| Sleep | **after 12 h with no traffic** — any visitor can wake it with one click |
+| Reboot | Manage app → ⋮ → Reboot app, when a redeploy seems to serve stale code |
 
 ## The honest caveats
 

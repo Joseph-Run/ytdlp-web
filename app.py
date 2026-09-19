@@ -17,10 +17,11 @@ import engine
 st.set_page_config(page_title="yt-dlp Web", page_icon="⬇️", layout="centered")
 
 # Browser-side handoff is the only way out of the container, so everything the
-# user gets passes through memory once per file. Keep a free tier (about 1 GB)
-# alive by refusing to buffer more than this.
-MAX_FILE_BYTES = 400 * 1024 * 1024
-MAX_TOTAL_BYTES = 900 * 1024 * 1024
+# user gets passes through memory (twice: once as our bytes, once inside
+# Streamlit's media manager). Community Cloud allots 690 MB - 2.7 GB per app,
+# and gets throttled as it approaches the ceiling.
+MAX_FILE_BYTES = 300 * 1024 * 1024
+MAX_TOTAL_BYTES = 600 * 1024 * 1024
 LOG_LINES_KEPT = 300
 LOG_RENDER_INTERVAL = 0.5  # seconds between log repaints
 
