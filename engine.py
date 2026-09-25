@@ -336,8 +336,17 @@ def convert_files_to_h264(files, result, on_log, on_progress, should_cancel) -> 
         if new_path != path:
             try:
                 path.unlink()
+                # Only reclaim the source name when the source already ended in
+                # the right extension (an .mp4 whose stream we replaced, so the
+                # converter had to write "x.h264.mp4"). A WebM source converted to
+                # "x.mp4" is already named the way it should be — renaming it back
+                # would hand over an .mp4 called ".webm".
+                if (new_path.parent == path.parent
+                        and new_path.suffix.lower() == path.suffix.lower()
+                        and not path.exists()):
+                    new_path = new_path.replace(path)
             except OSError as exc:  # the converted file is what matters
-                on_log(f"WARNING: could not delete {path.name}: {exc}")
+                on_log(f"WARNING: could not rename/remove {path.name}: {exc}")
         converted.append(new_path)
     return converted
 

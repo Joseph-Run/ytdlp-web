@@ -45,6 +45,7 @@ def run_ffmpeg(*args):
 
 def make_clip(path, vcodec, acodec=None, seconds=1):
     """A real, tiny clip — the app's H.264 pass needs something ffmpeg can read."""
+    path = Path(path)
     args = ["-f", "lavfi", "-i", f"testsrc=size=128x72:rate=10:duration={seconds}"]
     if acodec:
         args += ["-f", "lavfi", "-i", f"sine=frequency=440:duration={seconds}",
@@ -52,9 +53,11 @@ def make_clip(path, vcodec, acodec=None, seconds=1):
     args += ["-c:v", vcodec]
     if vcodec == "libx264":
         args += ["-pix_fmt", "yuv420p"]
+    if path.suffix.lower() == ".mp4" and vcodec != "libx264":
+        args += ["-strict", "-2"]  # VP9/AV1 in MP4 is what Instagram serves
     args.append(str(path))
     run_ffmpeg(*args)
-    return Path(path)
+    return path
 
 
 class FakeYDL:
@@ -82,10 +85,10 @@ class FakeYDL:
         shutil.copy(FakeYDL.fixture, outdir / FakeYDL.filename)
 
 
-def use_fixture(vcodec, filename, acodec=None):
+def use_fixture(vcodec, filename, acodec=None, container=None):
     """Point FakeYDL at a fresh clip of the given codec; return its temp dir."""
     d = Path(tempfile.mkdtemp(prefix="ytdlp-fixture-"))
-    suffix = ".mp4" if vcodec == "libx264" else ".webm"
+    suffix = container or (".mp4" if vcodec == "libx264" else ".webm")
     FakeYDL.fixture = make_clip(d / f"source{suffix}", vcodec, acodec=acodec)
     FakeYDL.filename = filename
     return d
@@ -263,8 +266,10 @@ def test_original_codec_skips_conversion():
 
 
 def test_partial_failure_still_offers_the_good_file():
-    print("partial failure — one item of a multi-item post fails")
-    use_fixture("libvpx-vp9", "Video by someone [DdrxDS0iFKR].webm")
+    print("partial failure — Instagram post, second item is an image")
+    # Exactly what the live app saw: an .mp4 whose video stream is VP9.
+    use_fixture("libvpx-vp9", "Video by wilsplendortoys_bicycle [DdrxDS0iFKR].mp4",
+                acodec="libopus", container=".mp4")
 
     class PartialYDL(FakeYDL):
         """One item downloads, a second has no video (an image in a carousel)."""
@@ -282,10 +287,11 @@ def test_partial_failure_still_offers_the_good_file():
     finally:
         yt_dlp.YoutubeDL = real
 
+    label = label_of(at.download_button[0]) if len(at.download_button) else ""
     check("no exception", len(at.exception) == 0)
     check("the item that worked is still offered, converted",
-          len(at.download_button) == 1
-          and "Video by someone [DdrxDS0iFKR].mp4" in label_of(at.download_button[0]))
+          "Video by wilsplendortoys_bicycle [DdrxDS0iFKR].mp4" in label)
+    check("its name carries no '.h264' machinery suffix", ".h264" not in label)
     check("the failure is a warning, not a red error",
           len(at.error) == 0 and any("problem" in w.value for w in at.warning))
     check("the warning counts both the file and the problem",

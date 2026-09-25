@@ -12,8 +12,8 @@ the media and hands it straight back to your browser.
 |---|---|
 | `app.py` | Streamlit UI: URL box, options, progress bar, log, download buttons. |
 | `engine.py` | The engine — option building, format selection, download orchestration, progress, cancellation and the H.264 conversion. No Streamlit import, so it's testable and reusable on its own. |
-| `test_engine.py` | Headless test suite for the engine (168 checks, no network; the conversion checks use real ffmpeg-generated clips). |
-| `test_app.py` | Runs `app.py` through Streamlit's own `AppTest` harness (59 checks). |
+| `test_engine.py` | Headless test suite for the engine (173 checks, no network; the conversion checks use real ffmpeg-generated clips). |
+| `test_app.py` | Runs `app.py` through Streamlit's own `AppTest` harness (60 checks). |
 | `requirements.txt` | Deploy dependencies (`streamlit`, `yt-dlp`). |
 | `packages.txt` | System packages — `ffmpeg`, required to merge streams, convert audio and re-encode video. |
 | `.streamlit/config.toml` | Telemetry off, headless server, upload cap. |
@@ -42,7 +42,10 @@ the first is free:
    - anything else (VP9/AV1, WebM, a 4K ceiling) → full `libx264` re-encode at
      crf 20 / `veryfast` / `yuv420p` with AAC audio and `+faststart`.
 
-Either way the source file is deleted and only the converted file is offered, and
+Either way the source file is deleted and only the converted file is offered. When
+the source already had the right extension — Instagram serves VP9 *inside* an
+`.mp4` — the converted file takes the source's own name, so
+`Video by someone [id].mp4` reaches your downloads, not `…[id].h264.mp4`.
 *Original codec* in the UI skips step 2 entirely.
 
 ## Run locally

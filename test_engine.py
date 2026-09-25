@@ -233,6 +233,7 @@ def run_ffmpeg(*args):
 
 def make_clip(path, vcodec, acodec=None, seconds=1):
     """A real, tiny video: 1 s of test pattern, optionally with a sine track."""
+    path = Path(path)
     args = ["-f", "lavfi", "-i", f"testsrc=size=128x72:rate=10:duration={seconds}"]
     if acodec:
         args += ["-f", "lavfi", "-i", f"sine=frequency=440:duration={seconds}",
@@ -240,9 +241,13 @@ def make_clip(path, vcodec, acodec=None, seconds=1):
     args += ["-c:v", vcodec]
     if vcodec == "libx264":
         args += ["-pix_fmt", "yuv420p"]
+    if path.suffix.lower() == ".mp4" and vcodec != "libx264":
+        # VP9/AV1 inside MP4 still sits behind ffmpeg's experimental gate. Sites
+        # serve exactly that (Instagram does), so the tests must build it too.
+        args += ["-strict", "-2"]
     args.append(str(path))
     run_ffmpeg(*args)
-    return Path(path)
+    return path
 
 
 def stream_codecs(path):
@@ -623,6 +628,27 @@ def test_download_keeps_original_codec_when_asked():
           res.files[0].suffix == ".webm" and not list(audio_out.glob("*.mp4")))
 
 
+def test_download_gives_a_converted_mp4_its_own_name():
+    print("download — a VP9-in-MP4 source (Instagram) keeps its name")
+    if not ffmpeg_ready():
+        return
+    d = tmpdir()
+    ClipWritingYDL.source = make_clip(d / "fixture.mp4", "libvpx-vp9", acodec="libopus")
+    ClipWritingYDL.filename = "Video by wilsplendortoys_bicycle [DdrxDS0iFKR].mp4"
+    outdir = tmpdir()
+    res = engine.download(["https://example.com/ig"], engine.DownloadSettings(), outdir,
+                          on_log=lambda m: None, ydl_factory=ClipWritingYDL)
+    check("the source really is VP9 inside an .mp4",
+          engine.probe_streams(ClipWritingYDL.source)["video"] == "vp9")
+    check("the delivered file keeps the natural name — no '.h264.mp4'",
+          res.files[0].name == "Video by wilsplendortoys_bicycle [DdrxDS0iFKR].mp4"
+          and res.files[0].parent == outdir)
+    check("and it really is H.264",
+          engine.probe_video_codec(res.files[0]) == "h264")
+    check("nothing else is left in the output dir",
+          [p.name for p in outdir.iterdir()] == [res.files[0].name])
+
+
 def test_conversion_failure_is_reported():
     print("download — conversion failure")
     if not ffmpeg_ready():
@@ -678,6 +704,7 @@ def main():
         test_download_converts_vp9_to_h264,
         test_download_skips_conversion_when_already_h264,
         test_download_keeps_original_codec_when_asked,
+        test_download_gives_a_converted_mp4_its_own_name,
         test_conversion_failure_is_reported,
     ]:
         fn()
