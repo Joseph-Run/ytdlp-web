@@ -115,6 +115,10 @@ with st.expander("Read this before you paste a YouTube link"):
         "stream is downloaded and re-encoded to H.264 on the server — slow and CPU "
         "hungry. Audio is kept compatible too: m4a where possible, AAC otherwise. "
         "Choose *Original codec* to skip all of that.\n"
+        "- **A multi-item post is not all or nothing.** An Instagram carousel whose "
+        "other item is an image, or one dead link in a playlist, is reported in the "
+        "log while everything else still comes through — the files that worked are "
+        "offered below either way.\n"
         "- **Storage is temporary.** Files live in a scratch directory for this "
         "browser session only and are deleted when you clear results.\n"
         "- **Respect the rules you're operating under.** Downloading content you "
@@ -279,6 +283,16 @@ if run:
         elif result.ok and result.files:
             bar.progress(1.0, text="Done")
             st.success(f"Finished in {elapsed:.0f}s — {len(result.files)} file(s) below.")
+        elif result.files:
+            # Partly done: a carousel whose second item is an image, or one dead
+            # URL in a playlist. The files that did come through are the point of
+            # the run, so don't dress this up as a total failure.
+            bar.progress(1.0, text="Partly done")
+            st.warning(
+                f"Finished in {elapsed:.0f}s — {len(result.files)} file(s) below and "
+                f"ready to download, but yt-dlp reported {len(result.errors)} problem(s). "
+                "The log above says which item, and why."
+            )
         elif result.ok:
             bar.progress(0.0, text="Nothing new")
             st.info("yt-dlp finished but produced no new files — check the log.")

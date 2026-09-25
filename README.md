@@ -13,7 +13,7 @@ the media and hands it straight back to your browser.
 | `app.py` | Streamlit UI: URL box, options, progress bar, log, download buttons. |
 | `engine.py` | The engine — option building, format selection, download orchestration, progress, cancellation and the H.264 conversion. No Streamlit import, so it's testable and reusable on its own. |
 | `test_engine.py` | Headless test suite for the engine (168 checks, no network; the conversion checks use real ffmpeg-generated clips). |
-| `test_app.py` | Runs `app.py` through Streamlit's own `AppTest` harness (53 checks). |
+| `test_app.py` | Runs `app.py` through Streamlit's own `AppTest` harness (59 checks). |
 | `requirements.txt` | Deploy dependencies (`streamlit`, `yt-dlp`). |
 | `packages.txt` | System packages — `ffmpeg`, required to merge streams, convert audio and re-encode video. |
 | `.streamlit/config.toml` | Telemetry off, headless server, upload cap. |
@@ -142,5 +142,10 @@ Free-tier facts worth knowing (per Streamlit's docs, subject to change):
   the free tier's ~1 core, and the result can be several times larger. Pick a
   resolution whose H.264 stream exists (1080p and below on YouTube) or choose
   *Original codec* if your player handles VP9/AV1.
+- **A multi-item post is not all or nothing.** Instagram hands a carousel back as
+  a playlist, so an item that is an image (or a dead URL in a playlist) ends up in
+  the log with *"No video formats found"* while the rest still download. That is
+  reported as a partial result — "N file(s) below and ready, M problem(s)" — not
+  as a failed run, because the files that came through are the run.
 - **This is a tool, not a licence.** Downloading content you don't own, or that
   a site's terms forbid, is on you.

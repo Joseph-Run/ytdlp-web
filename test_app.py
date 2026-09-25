@@ -262,6 +262,40 @@ def test_original_codec_skips_conversion():
     check("nothing was converted", not any("Converting" in c.value for c in at.code))
 
 
+def test_partial_failure_still_offers_the_good_file():
+    print("partial failure — one item of a multi-item post fails")
+    use_fixture("libvpx-vp9", "Video by someone [DdrxDS0iFKR].webm")
+
+    class PartialYDL(FakeYDL):
+        """One item downloads, a second has no video (an image in a carousel)."""
+
+        def download(self, urls):
+            super().download(urls)
+            self.opts["logger"].error("[Instagram] DdrxCjsI-RD: No video formats found!")
+
+    real = yt_dlp.YoutubeDL
+    yt_dlp.YoutubeDL = PartialYDL
+    try:
+        at = fresh_app()
+        at.text_area[0].set_value("https://www.instagram.com/p/DdrxO12iBXA/").run()
+        button(at, "Download").click().run()
+    finally:
+        yt_dlp.YoutubeDL = real
+
+    check("no exception", len(at.exception) == 0)
+    check("the item that worked is still offered, converted",
+          len(at.download_button) == 1
+          and "Video by someone [DdrxDS0iFKR].mp4" in label_of(at.download_button[0]))
+    check("the failure is a warning, not a red error",
+          len(at.error) == 0 and any("problem" in w.value for w in at.warning))
+    check("the warning counts both the file and the problem",
+          any("1 file(s)" in w.value and "1 problem(s)" in w.value for w in at.warning))
+    check("it is not passed off as a plain success",
+          not any("Finished in" in s.value for s in at.success))
+    check("the underlying reason is in the log",
+          any("No video formats" in c.value for c in at.code))
+
+
 def test_failed_download_reports_error():
     print("failed download (fake yt-dlp)")
     class FailingYDL(FakeYDL):
@@ -336,6 +370,7 @@ def main():
         test_download_flow,
         test_vp9_download_is_converted_in_the_ui,
         test_original_codec_skips_conversion,
+        test_partial_failure_still_offers_the_good_file,
         test_failed_download_reports_error,
         test_results_survive_rerun,
         test_clear_button,
