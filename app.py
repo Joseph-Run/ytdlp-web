@@ -108,6 +108,13 @@ with st.expander("Read this before you paste a YouTube link"):
         "not a bot\"* even when the same link works at home. Uploading a "
         "`cookies.txt` below is the usual workaround; plenty of other sites work "
         "with no cookies at all.\n"
+        "- **Videos are delivered as H.264 in MP4 by default.** That is the one "
+        "combination every player, editor and phone accepts. Up to 1080p (and for "
+        "*Best available*) the app fetches the site's own H.264 stream and nothing "
+        "is re-encoded. A 1440p/4K request has no H.264 stream to fetch, so the real "
+        "stream is downloaded and re-encoded to H.264 on the server — slow and CPU "
+        "hungry. Audio is kept compatible too: m4a where possible, AAC otherwise. "
+        "Choose *Original codec* to skip all of that.\n"
         "- **Storage is temporary.** Files live in a scratch directory for this "
         "browser session only and are deleted when you clear results.\n"
         "- **Respect the rules you're operating under.** Downloading content you "
@@ -128,12 +135,33 @@ with col_mode:
 with col_quality:
     if mode_label == "Video":
         video_quality = st.selectbox("Quality", list(engine.VIDEO_QUALITY_OPTIONS.keys()))
+        codec_label = st.selectbox(
+            "Video codec",
+            list(engine.VIDEO_CODEC_OPTIONS.keys()),
+            help="H.264 in MP4 plays in every player, editor and phone. Up to 1080p "
+                 "the site's own H.264 stream is fetched and nothing is re-encoded; "
+                 "a 1440p/4K request is downloaded in whatever codec the site serves "
+                 "and re-encoded on the server, which is slow and can even be larger "
+                 "— 'Original codec' skips that pass.",
+        )
+        video_codec = engine.VIDEO_CODEC_OPTIONS[codec_label]
         audio_format, audio_quality = "mp3", "5 (default)"
     else:
         video_quality = "Best available"
+        video_codec = "h264"
         audio_format = st.selectbox("Audio format", engine.AUDIO_FORMAT_OPTIONS)
         audio_quality = st.selectbox("Audio quality",
                                      list(engine.AUDIO_QUALITY_OPTIONS.keys()), index=2)
+
+if (mode_label == "Video" and video_codec == "h264"
+        and engine.VIDEO_QUALITY_OPTIONS[video_quality] in (1440, 2160)):
+    st.caption(
+        "No H.264 stream exists above 1080p — YouTube publishes VP9/AV1 only — so "
+        "this request takes the real 1440p/4K stream and **re-encodes it to H.264 "
+        "on the server** before you download it. That takes about as long as the "
+        "video is long, and the result can be larger than the source. 1080p or "
+        "lower exists as H.264 already, so it needs no re-encode at all."
+    )
 
 col_a, col_b, col_c = st.columns(3)
 with col_a:
@@ -165,9 +193,9 @@ if cookies_file is not None:
 
 if not engine.ffmpeg_available():
     st.error(
-        "ffmpeg is missing on this server, so merging separate video+audio streams "
-        "and audio conversion will fail. On Streamlit Community Cloud, add "
-        "`ffmpeg` to `packages.txt`."
+        "ffmpeg is missing on this server, so merging separate video+audio streams, "
+        "converting audio and re-encoding video to H.264 will all fail. On Streamlit "
+        "Community Cloud, add `ffmpeg` to `packages.txt`."
     )
 
 col_run, col_cancel, col_clear = st.columns([2, 1, 1])
@@ -208,6 +236,7 @@ if run:
         settings = engine.DownloadSettings(
             mode="audio" if mode_label == "Audio only" else "video",
             video_quality=video_quality,
+            video_codec=video_codec,
             audio_format=audio_format,
             audio_quality=audio_quality,
             playlist=playlist,

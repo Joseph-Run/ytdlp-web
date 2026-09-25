@@ -9,12 +9,16 @@ Run:  python test_app.py
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
 import yt_dlp
 from streamlit.testing.v1 import AppTest
+
+import engine
 
 APP = str(Path(__file__).resolve().parent / "app.py")
 
@@ -32,8 +36,37 @@ def check(label, condition):
         FAILURES.append(label)
 
 
+def run_ffmpeg(*args):
+    proc = subprocess.run([shutil.which("ffmpeg"), "-y", "-nostdin", "-loglevel", "error", *args],
+                          capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr.strip()[-400:])
+
+
+def make_clip(path, vcodec, acodec=None, seconds=1):
+    """A real, tiny clip — the app's H.264 pass needs something ffmpeg can read."""
+    args = ["-f", "lavfi", "-i", f"testsrc=size=128x72:rate=10:duration={seconds}"]
+    if acodec:
+        args += ["-f", "lavfi", "-i", f"sine=frequency=440:duration={seconds}",
+                 "-map", "0:v:0", "-map", "1:a:0", "-c:a", acodec, "-shortest"]
+    args += ["-c:v", vcodec]
+    if vcodec == "libx264":
+        args += ["-pix_fmt", "yuv420p"]
+    args.append(str(path))
+    run_ffmpeg(*args)
+    return Path(path)
+
+
 class FakeYDL:
-    """No network: writes a plausible output file into whatever dir we're given."""
+    """No network: copies a real clip into whatever output dir we're given.
+
+    The fixture is genuine (ffmpeg-generated) because the app converts video to
+    H.264: an H.264/MP4 fixture exercises the no-op path, a VP9/WebM one the
+    re-encode path.
+    """
+
+    fixture = None
+    filename = "Fake Clip [abc123].mp4"
 
     def __init__(self, opts):
         self.opts = opts
@@ -46,11 +79,32 @@ class FakeYDL:
 
     def download(self, urls):
         outdir = Path(self.opts["outtmpl"]).parent
-        (outdir / "Fake Clip [abc123].mp4").write_bytes(b"v" * 8192)
+        shutil.copy(FakeYDL.fixture, outdir / FakeYDL.filename)
+
+
+def use_fixture(vcodec, filename, acodec=None):
+    """Point FakeYDL at a fresh clip of the given codec; return its temp dir."""
+    d = Path(tempfile.mkdtemp(prefix="ytdlp-fixture-"))
+    suffix = ".mp4" if vcodec == "libx264" else ".webm"
+    FakeYDL.fixture = make_clip(d / f"source{suffix}", vcodec, acodec=acodec)
+    FakeYDL.filename = filename
+    return d
 
 
 def label_of(element):
     return getattr(element, "label", "") or ""
+
+
+H264_LABEL = [label for label, value in engine.VIDEO_CODEC_OPTIONS.items() if value == "h264"][0]
+ORIGINAL_LABEL = [label for label, value in engine.VIDEO_CODEC_OPTIONS.items() if value == "original"][0]
+
+
+def codec_box(at):
+    """The video-codec selectbox, or None when it isn't on the page (audio mode)."""
+    for box in at.selectbox:
+        if label_of(box) == "Video codec":
+            return box
+    return None
 
 
 def button(at, text):
@@ -73,10 +127,34 @@ def test_boots():
     check("title rendered", any("yt-dlp Web" in t.value for t in at.title))
     check("url box present", len(at.text_area) == 1)
     check("mode radio defaults to Video", at.radio[0].value == "Video")
+    check("quality box defaults to Best available",
+          at.selectbox[0].value == "Best available")
+    check("codec box present in video mode", codec_box(at) is not None)
+    check("codec defaults to H.264",
+          codec_box(at) is not None and codec_box(at).value == H264_LABEL)
+    check("codec box explains what it does", "H.264" in codec_box(at).help)
     check("playlist slider disabled while playlist off", at.slider[0].disabled is True)
     check("download button present", button(at, "Download") is not None)
     check("cancel button present", button(at, "Cancel") is not None)
     check("clear button present", button(at, "Clear results") is not None)
+
+
+def test_reencode_notice():
+    print("re-encode notice above 1080p")
+    at = fresh_app()
+    check("no notice at Best available",
+          not any("re-encoded" in c.value for c in at.caption))
+    at.selectbox[0].set_value("1080p or lower").run()
+    check("no notice at 1080p (H.264 exists there)",
+          not any("re-encoded" in c.value for c in at.caption))
+    at.selectbox[0].set_value("2160p (4K) or lower").run()
+    check("4K warns that it will be re-encoded",
+          any("re-encode" in c.value and "H.264" in c.value for c in at.caption))
+    at = fresh_app()
+    at.selectbox[0].set_value("2160p (4K) or lower").run()
+    at.selectbox[1].set_value(ORIGINAL_LABEL).run()
+    check("the notice disappears once the original codec is chosen",
+          not any("re-encode" in c.value for c in at.caption))
 
 
 def test_empty_url_is_graceful():
@@ -98,6 +176,7 @@ def test_mode_switch_shows_audio_options():
     check("audio format box appeared", "mp3" in values)
     check("audio quality box appeared", any("(default)" in str(v) for v in values))
     check("quality box gone", not any("Best available" in str(v) for v in values))
+    check("codec box gone in audio mode", codec_box(at) is None)
 
 
 def test_playlist_slider_enables():
@@ -111,7 +190,8 @@ def test_playlist_slider_enables():
 
 
 def test_download_flow():
-    print("download flow (fake yt-dlp)")
+    print("download flow (fake yt-dlp, real H.264 clip)")
+    use_fixture("libx264", "Fake Clip [abc123].mp4", acodec="aac")
     real = yt_dlp.YoutubeDL
     yt_dlp.YoutubeDL = FakeYDL
     try:
@@ -134,6 +214,52 @@ def test_download_flow():
         check("button serves this app's media, not an upstream link",
               "/media/" in url and url.endswith(".mp4"))
     check("log mentions the URL", any("example.com" in c.value for c in at.code))
+    check("an already-H.264 file is handed over without conversion",
+          any("already H.264" in c.value for c in at.code))
+
+
+def test_vp9_download_is_converted_in_the_ui():
+    print("download flow — VP9 source reaches the browser as H.264 MP4")
+    use_fixture("libvpx-vp9", "Fake Clip [vp9clip].webm", acodec="libopus")
+    real = yt_dlp.YoutubeDL
+    yt_dlp.YoutubeDL = FakeYDL
+    try:
+        at = fresh_app()
+        at.text_area[0].set_value("https://example.com/watch?v=vp9clip").run()
+        button(at, "Download").click().run()
+    finally:
+        yt_dlp.YoutubeDL = real
+
+    check("no exception", len(at.exception) == 0)
+    check("success message", any("Finished in" in s.value for s in at.success))
+    check("one file offered", len(at.download_button) == 1)
+    if len(at.download_button):
+        check("the offered file is the converted MP4, not the WebM",
+              "Fake Clip [vp9clip].mp4" in label_of(at.download_button[0]))
+        check("button serves mp4 media",
+              str(getattr(at.download_button[0], "url", "")).endswith(".mp4"))
+    check("conversion is visible in the log",
+          any("Converting" in c.value for c in at.code))
+
+
+def test_original_codec_skips_conversion():
+    print("download flow — Original codec")
+    use_fixture("libvpx-vp9", "Fake Clip [keepme].webm")
+    real = yt_dlp.YoutubeDL
+    yt_dlp.YoutubeDL = FakeYDL
+    try:
+        at = fresh_app()
+        at.text_area[0].set_value("https://example.com/watch?v=keepme").run()
+        codec_box(at).set_value(ORIGINAL_LABEL).run()
+        button(at, "Download").click().run()
+    finally:
+        yt_dlp.YoutubeDL = real
+
+    check("no exception", len(at.exception) == 0)
+    check("the WebM is handed over as-is",
+          len(at.download_button) == 1
+          and "Fake Clip [keepme].webm" in label_of(at.download_button[0]))
+    check("nothing was converted", not any("Converting" in c.value for c in at.code))
 
 
 def test_failed_download_reports_error():
@@ -162,6 +288,7 @@ def test_failed_download_reports_error():
 
 def test_results_survive_rerun():
     print("results persist across reruns")
+    use_fixture("libx264", "Fake Clip [abc123].mp4")
     real = yt_dlp.YoutubeDL
     yt_dlp.YoutubeDL = FakeYDL
     try:
@@ -179,6 +306,7 @@ def test_results_survive_rerun():
 
 def test_clear_button():
     print("clear results")
+    use_fixture("libx264", "Fake Clip [abc123].mp4")
     real = yt_dlp.YoutubeDL
     yt_dlp.YoutubeDL = FakeYDL
     try:
@@ -194,12 +322,20 @@ def test_clear_button():
 
 
 def main():
+    if not (engine.ffmpeg_available() and engine.ffprobe_available()):
+        print("ffmpeg/ffprobe missing — the app converts video to H.264 and the "
+              "download flow cannot be tested without them.")
+        sys.exit(1)
+
     for fn in [
         test_boots,
+        test_reencode_notice,
         test_empty_url_is_graceful,
         test_mode_switch_shows_audio_options,
         test_playlist_slider_enables,
         test_download_flow,
+        test_vp9_download_is_converted_in_the_ui,
+        test_original_codec_skips_conversion,
         test_failed_download_reports_error,
         test_results_survive_rerun,
         test_clear_button,
